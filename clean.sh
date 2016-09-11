@@ -1,2 +1,2 @@
 #!/bin/bash
-npm -s start clean "$@"
+npm -s start clean "$@" > status.txt

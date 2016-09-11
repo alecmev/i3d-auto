@@ -62,16 +62,18 @@ async function callAPI(action, gameserverId, body = {}) {
   throw new Error(`[${gameserverId}] ${action} failed: ${r.msg}`);
 }
 
+const statusColumns = {
+  head: [
+    'id', 'location',
+    'ip', 'rcon port', 'rcon password', 'game password',
+    'state', 'players',
+    'last online',
+    'current name',
+  ],
+};
+
 async function status(ids = allIds) {
-  const t = new Table({
-    head: [
-      'id', 'location',
-      'ip', 'rcon port', 'rcon password', 'game password',
-      'state', 'players',
-      'last online',
-      'current name',
-    ],
-  });
+  const t = new Table(statusColumns);
   const locNums = {};
   for (const id of ids) {
     // requests are made sequentially to avoid hitting the rate-limiter
@@ -80,12 +82,14 @@ async function status(ids = allIds) {
       (await callAPI('getConfig', id, { gameconfigName: 'startup.txt' }))
         .data[0].config.gameconfig,
     ];
+
     const locNum = (locNums[srv.location] || 0) + 1;
     locNums[srv.location] = locNum;
     const cfgL = cfg.split('\n');
     const pwa = cfgL.find((x) => x.startsWith('admin.password'));
     const pwg = cfgL.find((x) => x.startsWith('vars.gamePassword'));
     const online = srv.online === 1;
+
     t.push([
       id, `${cities[srv.location] || srv.location.toUpperCase()} ${locNum}`,
       srv.ip, srv.queryPort, pwa && pwa.split(' ')[1], pwg && pwg.split(' ')[1],
@@ -105,21 +109,43 @@ async function restart(ids = allIds) {
 }
 
 async function clean(ids = allIds) {
+  const t = new Table({
+    head: [
+      'id', 'location',
+      'ip', 'rcon port', 'rcon password', 'game password',
+      'state', 'players',
+      'last online',
+      'current name',
+    ],
+  });
   const locNums = {};
   for (const id of ids) {
     const srv = (await callAPI('getServerById', id)).data.gameservers[0];
+
     const locName = cities[srv.location] || srv.location.toUpperCase();
     const locNum = (locNums[srv.location] || 0) + 1;
     locNums[srv.location] = locNum;
     const name = `BCL | auzom.gg | i3D.net | ${locName} ${locNum}`;
+    const pwa = generatePassword(16, false, /[A-Za-z0-9]/);
+    const pwg = generatePassword(4);
+    const online = srv.online === 1;
+
+    t.push([
+      id, `${locName} ${locNum}`,
+      srv.ip, srv.queryPort, pwa, pwg,
+      (online ? 'ON' : 'OFF'), srv.livePlayers,
+      (online ? '' : (new Date(srv.lastOnline * 1000)).toISOString()),
+      name,
+    ]);
+
     await callAPI('updateConfig', id, {
       gameconfigName: 'startup.txt',
       gameconfig: new Buffer(`
 vars.preset normal false
 vars.serverType private
 
-admin.password ${generatePassword(16, false)}
-vars.gamePassword ${generatePassword(4)}
+admin.password ${pwa}
+vars.gamePassword ${pwg}
 vars.serverDescription "https://auzom.gg/battlefield-4/conquest-league"
 vars.serverMessage "${name}"
 vars.serverName "${name}"
@@ -148,53 +174,59 @@ vars.unlockMode all
 vars.OutHighFrequency 60
       `).toString('base64'),
     });
-//     await callAPI('updateConfig', id, {
-//       gameconfigName: 'spectatorList.txt',
-//       gameconfig: new Buffer(`
-// _Drtyyyyyy
-// ACX-jevs
-// auzom-Mr_Falls
-// Auzom_Aether
-// BOOMBABY-Geruled
-// BrettFXTV
-// ESF-John3I6
-// eXo-MrElectrify
-// InFamouS_Scorpi
-// Jonnnne
-// Kevinario
-// LDLC_NeomeTrixX
-// LHC_UneFrite
-// MiloshTheMedic
-// nerdRage_Alby26
-// nerdRage_Santa
-// NeutralCitizen
-// oO_Slax
-// RSA-VEGA
-// Skrub_Panda
-// Skrublord_Gump
-// TaffsX
-// uRaN-MiiT
-// WAFFELS-Cobalt
-//       `).toString('base64'),
-//     });
-    // await callAPI('updateConfig', id, {
-    //   gameconfigName: 'maplist.txt',
-    //   gameconfig: new Buffer(
-    //     'MP_Abandoned ConquestSmall0 1'
-    //   ).toString('base64'),
-    // });
+
+    await callAPI('updateConfig', id, {
+      gameconfigName: 'spectatorList.txt',
+      gameconfig: new Buffer(`
+_Drtyyyyyy
+ACX-jevs
+auzom-Mr_Falls
+Auzom_Aether
+BOOMBABY-Geruled
+BrettFXTV
+ESF-John3I6
+eXo-MrElectrify
+InFamouS_Scorpi
+Jonnnne
+Kevinario
+LDLC_NeomeTrixX
+LHC_UneFrite
+MiloshTheMedic
+nerdRage_Alby26
+nerdRage_Santa
+NeutralCitizen
+oO_Slax
+RSA-VEGA
+Skrub_Panda
+Skrublord_Gump
+TaffsX
+uRaN-MiiT
+WAFFELS-Cobalt
+      `).toString('base64'),
+    });
+
+    await callAPI('updateConfig', id, {
+      gameconfigName: 'maplist.txt',
+      gameconfig: new Buffer(
+        'MP_Abandoned ConquestSmall0 1'
+      ).toString('base64'),
+    });
+
     await callAPI('updateConfig', id, {
       gameconfigName: 'ReservedSlotsList.txt',
       gameconfig: new Buffer(
         ''
       ).toString('base64'),
     });
+
     if (srv.livePlayers === 0) {
       await callAPI('hardRestart', id, { seconds: 1 });
     } else {
       console.info(`[${id}] no restart, ${srv.livePlayers} players online`);
     }
   }
+
+  console.log(t.toString());
 }
 
 const argv = docopt(`
