@@ -167,7 +167,7 @@ vars.OutHighFrequency 60
 
     await callAPI('updateConfig', id, {
       gameconfigName: 'ReservedSlotsList.txt',
-      gameconfig: new Buffer(config.rserved.join('\n')).toString('base64'),
+      gameconfig: new Buffer(config.reserved.join('\n')).toString('base64'),
     });
 
     if (srv.livePlayers === 0) {
