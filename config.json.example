@@ -1,0 +1,30 @@
+{
+  "i3d": {
+    "userId": "a",
+    "apiKey": "b"
+  },
+  "slack": {
+    "token": "c",
+    "team_id": "d",
+    "channel_id": "e"
+  },
+  "servers": [
+    "f",
+    "g",
+    "h"
+  ],
+  "name": {
+    "pre": "i | ",
+    "post": " | j"
+  },
+  "desc": "k",
+  "spectators": [
+    "l",
+    "m",
+    "n"
+  ],
+  "maps": [
+    "MP_Abandoned ConquestSmall0 1"
+  ],
+  "reserved": []
+}

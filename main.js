@@ -1,10 +1,14 @@
 import Promise from 'bluebird';
 
-import Table from 'cli-table';
 import consoleStamp from 'console-stamp';
 import { docopt } from 'docopt';
-import generatePassword from 'password-generator';
+import fs from 'fs';
+import Koa from 'koa';
+import bodyParser from 'koa-bodyparser';
+import _ from 'lodash';
 import rp from 'request-promise';
+
+import * as lib from './lib';
 
 import config from './config.json';
 
@@ -16,231 +20,148 @@ Promise.config({
 
 consoleStamp(console, {
   pattern: 'HH:MM:ss',
-  label: false,
-  include: ['error', 'warn', 'info'],
   colors: {
     stamp: 'gray',
     label: 'gray',
   },
 });
 
-const cities = {
-  ams: 'Amsterdam',
-  fra: 'Frankfurt',
-  gru: 'Sao Paulo',
-  iad: 'Washington',
-  mia: 'Miami',
-};
-
-const allIds = [
-  702210,
-  702211,
-  702212,
-  702213,
-  702214,
-  702215,
-  702216,
-  702217,
-  702218,
-  702219,
-];
-
-async function callAPI(action, gameserverId, body = {}) {
-  console.error(`[${gameserverId}] ${action}`);
-  const r = await rp({
-    method: 'POST',
-    url: 'https://customer.i3d.net/api/rest/v2/gameserver',
-    body: {
-      ...config,
-      action,
-      gameserverId,
-      ...body,
-    },
-    json: true,
-  });
-  if (r.status === 'Success') return r;
-  throw new Error(`[${gameserverId}] ${action} failed: ${r.msg}`);
-}
-
-const statusColumns = {
-  head: [
-    'id', 'location',
-    'ip', 'rcon port', 'rcon password', 'game password',
-    'state', 'players',
-    'last online',
-    'current name',
-  ],
-};
-
-async function status(ids = allIds) {
-  const t = new Table(statusColumns);
-  const locNums = {};
-  for (const id of ids) {
-    // requests are made sequentially to avoid hitting the rate-limiter
-    const [srv, cfg] = [
-      (await callAPI('getServerById', id)).data.gameservers[0],
-      (await callAPI('getConfig', id, { gameconfigName: 'startup.txt' }))
-        .data[0].config.gameconfig,
-    ];
-
-    const locNum = (locNums[srv.location] || 0) + 1;
-    locNums[srv.location] = locNum;
-    const cfgL = cfg.split('\n');
-    const pwa = cfgL.find((x) => x.startsWith('admin.password'));
-    const pwg = cfgL.find((x) => x.startsWith('vars.gamePassword'));
-    const online = srv.online === 1;
-
-    t.push([
-      id, `${cities[srv.location] || srv.location.toUpperCase()} ${locNum}`,
-      srv.ip, srv.queryPort, pwa && pwa.split(' ')[1], pwg && pwg.split(' ')[1],
-      (online ? 'ON' : 'OFF'), srv.livePlayers,
-      (online ? '' : (new Date(srv.lastOnline * 1000)).toISOString()),
-      srv.HostName,
-    ]);
-  }
-
-  console.log(t.toString());
-}
-
-async function restart(ids = allIds) {
-  for (const id of ids) {
-    await callAPI('hardRestart', id, { seconds: 1 });
-  }
-}
-
-async function clean(ids = allIds) {
-  const t = new Table({
-    head: [
-      'id', 'location',
-      'ip', 'rcon port', 'rcon password', 'game password',
-      'state', 'players',
-      'last online',
-      'current name',
-    ],
-  });
-  const locNums = {};
-  for (const id of ids) {
-    const srv = (await callAPI('getServerById', id)).data.gameservers[0];
-
-    const locName = cities[srv.location] || srv.location.toUpperCase();
-    const locNum = (locNums[srv.location] || 0) + 1;
-    locNums[srv.location] = locNum;
-    const name = `BCL | auzom.gg | i3D.net | ${locName} ${locNum}`;
-    const pwa = generatePassword(16, false, /[A-Za-z0-9]/);
-    const pwg = generatePassword(4);
-    const online = srv.online === 1;
-
-    t.push([
-      id, `${locName} ${locNum}`,
-      srv.ip, srv.queryPort, pwa, pwg,
-      (online ? 'ON' : 'OFF'), srv.livePlayers,
-      (online ? '' : (new Date(srv.lastOnline * 1000)).toISOString()),
-      name,
-    ]);
-
-    await callAPI('updateConfig', id, {
-      gameconfigName: 'startup.txt',
-      gameconfig: new Buffer(`
-vars.preset normal false
-vars.serverType private
-
-admin.password ${pwa}
-vars.gamePassword ${pwg}
-vars.serverDescription "https://auzom.gg/battlefield-4/conquest-league"
-vars.serverMessage "${name}"
-vars.serverName "${name}"
-
-punkBuster.activate
-vars.alwaysAllowSpectators false
-vars.autoBalance false
-vars.commander false
-vars.friendlyFire true
-vars.gameModeCounter 63
-vars.idleTimeout 0
-vars.killCam false
-vars.maxPlayers 18
-vars.maxSpectators 8
-vars.roundLockdownCountdown 30
-vars.roundPlayersReadyBypassTimer 900
-vars.roundPlayersReadyMinCount 0
-vars.roundPlayersReadyPercent 50
-vars.roundRestartPlayerCount 0
-vars.roundStartPlayerCount 0
-vars.roundTimeLimit 50
-vars.teamKillCountForKick 0
-vars.teamKillKickForBan 0
-vars.teamKillValueForKick 0
-vars.unlockMode all
-vars.OutHighFrequency 60
-      `).toString('base64'),
-    });
-
-    await callAPI('updateConfig', id, {
-      gameconfigName: 'spectatorList.txt',
-      gameconfig: new Buffer(`
-_Drtyyyyyy
-ACX-jevs
-auzom-Mr_Falls
-Auzom_Aether
-BOOMBABY-Geruled
-BrettFXTV
-ESF-John3I6
-eXo-MrElectrify
-InFamouS_Scorpi
-Jonnnne
-Kevinario
-LDLC_NeomeTrixX
-LHC_UneFrite
-MiloshTheMedic
-nerdRage_Alby26
-nerdRage_Santa
-NeutralCitizen
-oO_Slax
-RSA-VEGA
-Skrub_Panda
-Skrublord_Gump
-TaffsX
-uRaN-MiiT
-WAFFELS-Cobalt
-      `).toString('base64'),
-    });
-
-    await callAPI('updateConfig', id, {
-      gameconfigName: 'maplist.txt',
-      gameconfig: new Buffer(
-        'MP_Abandoned ConquestSmall0 1'
-      ).toString('base64'),
-    });
-
-    await callAPI('updateConfig', id, {
-      gameconfigName: 'ReservedSlotsList.txt',
-      gameconfig: new Buffer(
-        ''
-      ).toString('base64'),
-    });
-
-    if (srv.livePlayers === 0) {
-      await callAPI('hardRestart', id, { seconds: 1 });
-    } else {
-      console.info(`[${id}] no restart, ${srv.livePlayers} players online`);
-    }
-  }
-
-  console.log(t.toString());
-}
-
-const argv = docopt(`
+const doc = `
 Usage:
-  main status [<id>...]
-  main restart [<id>...]
-  main clean [<id>...]
-`);
+  main serve
+  main status (all | <id>...)
+  main restart (all | <id>...)
+  main clean (all | <id>...)
+`;
 
-const argIds = argv['<id>'].length ? argv['<id>'] : undefined;
-if (argv.status) {
-  status(argIds);
-} else if (argv.restart) {
-  restart(argIds);
-} else if (argv.clean) {
-  clean(argIds);
+const argv = docopt(doc);
+
+const outputFile = 'output.txt';
+
+if (!argv.serve) {
+  (async () => {
+    const ids = argv.all ?
+      config.servers :
+      _.intersection(config.servers, argv['<id>']);
+
+    console.log(`${ids.length} servers: ${JSON.stringify(ids, null, 2)}`);
+    console.log('Processing...');
+
+    let output;
+    if (argv.status) {
+      output = await lib.status(ids);
+    } else if (argv.restart) {
+      output = await lib.restart(ids);
+    } else if (argv.clean) {
+      output = await lib.clean(ids);
+    }
+
+    if (output) {
+      fs.writeFileSync(outputFile, output);
+      console.log(`Done! Check ${outputFile}`);
+    } else {
+      fs.unlinkSync(outputFile);
+      console.log('Done! No output');
+    }
+
+    process.exit(0);
+  })();
 }
+
+const app = new Koa();
+app.use(async (ctx, next) => {
+  try {
+    await next();
+  } catch (err) {
+    console.error(err.message);
+    throw err;
+  }
+});
+app.use(bodyParser());
+
+app.use(async (ctx) => {
+  console.log(ctx.request.header['x-real-ip']);
+
+  const { method, url } = ctx.request;
+  if (method !== 'POST' || url !== '/') {
+    console.log({ method, url });
+    ctx.throw(404, 'bad method or url');
+  }
+
+  const {
+    token, team_id, channel_id, user_id, user_name,
+    text, response_url,
+  } = ctx.request.body;
+  if (
+    token !== config.slack.token ||
+    team_id !== config.slack.team_id || // eslint-disable-line
+    channel_id !== config.slack.channel_id // eslint-disable-line
+  ) {
+    console.log({ token, team_id, channel_id, user_id });
+    ctx.throw(401, 'bad token, team_id or channel_id');
+  }
+
+  console.log(`${user_name}: /srv ${text}`); // eslint-disable-line
+
+  if (!text) {
+    ctx.body = `\`\`\`
+Usage:
+  /srv                          show usage
+  /srv status (all | <id>...)   print status
+  /srv restart (all | <id>...)  force restart
+  /srv clean (all | <id>...)    reset configs, restart if empty and print status
+\`\`\``;
+    return;
+  }
+
+  const [action, ...rawIds] = text.split(' ');
+
+  if (!rawIds.length) ctx.throw(400, 'not enough arguments');
+  const ids = rawIds[0] === 'all' ?
+    config.servers :
+    _.intersection(config.servers, rawIds);
+
+  console.log(`servers: ${ids.join(' ')}`);
+
+  let p;
+  if (action === 'status') {
+    p = lib.status(ids);
+  } else if (action === 'restart') {
+    p = lib.restart(ids);
+  } else if (action === 'clean') {
+    p = lib.clean(ids);
+  } else {
+    ctx.throw(400, 'bad action');
+  }
+
+  p.then((x) => {
+    rp({
+      method: 'POST',
+      url: response_url,
+      body: {
+        response_type: 'in_channel',
+        text: `*Done!*\`\`\`${x}\`\`\``,
+      },
+      json: true,
+    });
+    console.log('done');
+  }).catch((err) => {
+    rp({
+      method: 'POST',
+      url: response_url,
+      body: {
+        response_type: 'in_channel',
+        text: `*Error!*\`\`\`${err}\`\`\``,
+      },
+      json: true,
+    });
+    console.error(err);
+  });
+
+  ctx.body = {
+    response_type: 'in_channel',
+    text: `Working on it... Selected servers:\`\`\`${ids.join('\n')}\`\`\``,
+  };
+});
+
+app.listen(80);

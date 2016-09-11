@@ -1,4 +1,5 @@
 ..sublime-workspace
+.env
 config.json
 node_modules
-status.txt
+output.txt
