@@ -1,16 +1,16 @@
+import airports from 'airport-codes';
 import Table from 'cli-table';
 import generatePassword from 'password-generator';
 import rp from 'request-promise';
 
 import config from './config.json';
 
-const cities = {
-  ams: 'Amsterdam',
-  fra: 'Frankfurt',
-  gru: 'Sao Paulo',
-  iad: 'Washington',
-  mia: 'Miami',
-};
+function city(iata) {
+  const iataUpper = iata.toUpperCase();
+  const airport = airports.findWhere({ iata: iataUpper });
+  if (!airport) return iataUpper;
+  return airport.get('city');
+}
 
 async function callAPI(action, gameserverId, body = {}) {
   console.log(`[${gameserverId}] ${action}`);
@@ -79,7 +79,7 @@ export async function status(ids) {
     const online = srv.online === 1;
 
     t.push([
-      id, `${cities[srv.location] || srv.location.toUpperCase()} ${locNum}`,
+      id, `${city(srv.location) || srv.location.toUpperCase()} ${locNum}`,
       srv.ip, srv.queryPort, pwa && pwa.split(' ')[1], pwg && pwg.split(' ')[1],
       (online ? 'ON' : 'OFF'), srv.livePlayers,
       (online ? '' : (new Date(srv.lastOnline * 1000)).toISOString()),
@@ -102,7 +102,7 @@ export async function clean(ids) {
   for (const id of ids) {
     const srv = (await callAPI('getServerById', id)).data.gameservers[0];
 
-    const locName = cities[srv.location] || srv.location.toUpperCase();
+    const locName = city(srv.location) || srv.location.toUpperCase();
     const locNum = (locNums[srv.location] || 0) + 1;
     locNums[srv.location] = locNum;
     const name = `${config.name.pre}${locName} ${locNum}${config.name.post}`;
