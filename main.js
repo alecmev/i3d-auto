@@ -160,7 +160,7 @@ Usage:
 
   ctx.body = {
     response_type: 'in_channel',
-    text: `Working on it... Selected servers:\`\`\`${ids.join('\n')}\`\`\``,
+    text: `Working on it... Selected servers: \`${ids.join(' ')}\``,
   };
 });
 
